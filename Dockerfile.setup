@@ -1,0 +1,8 @@
+FROM alpine:3.19
+
+RUN apk add --no-cache curl bash grep coreutils docker-cli
+
+COPY setup.sh /setup.sh
+RUN chmod +x /setup.sh
+
+ENTRYPOINT ["/setup.sh"]

@@ -1,0 +1,76 @@
+variables:
+  DOCKER_HOST: unix:///var/run/docker.sock
+  DOCKER_TLS_CERTDIR: ""
+  SONAR_HOST_URL: "http://sonarqube:9000"
+
+stages:
+  - build
+  - test
+  - quality
+
+# ── Build (usa o Dockerfile da aplicação) ────────────────────
+build:
+  stage: build
+  image: docker:24-dind
+  script:
+    - docker build --target build -t $CI_PROJECT_NAME:build . || docker build -t $CI_PROJECT_NAME:build .
+    - docker tag $CI_PROJECT_NAME:build $CI_PROJECT_NAME:latest
+    # Extrair artefatos compilados (se existirem)
+    - mkdir -p build-output
+    - docker create --name extract-$CI_JOB_ID $CI_PROJECT_NAME:build true
+    - docker cp extract-$CI_JOB_ID:/app/target build-output/target 2>/dev/null || true
+    - docker cp extract-$CI_JOB_ID:/app/build build-output/build 2>/dev/null || true
+    - docker rm extract-$CI_JOB_ID
+  artifacts:
+    paths:
+      - build-output/
+
+# ── Testes (executa TEST_CMD dentro do container) ────────────
+test:
+  stage: test
+  image: docker:24-dind
+  script:
+    - docker build --target build -t $CI_PROJECT_NAME:test . || docker build -t $CI_PROJECT_NAME:test .
+    - docker run --rm $CI_PROJECT_NAME:test sh -c "${TEST_CMD:-echo 'Nenhum TEST_CMD definido, pulando testes'}"
+
+# ── SonarQube (scanner genérico) ─────────────────────────────
+sonarqube:
+  stage: quality
+  image:
+    name: sonarsource/sonar-scanner-cli:latest
+    entrypoint: [""]
+  script:
+    - |
+      PROJECT_KEY="${SONAR_PROJECT_KEY:-$CI_PROJECT_NAME}"
+      PROJECT_NAME="${SONAR_PROJECT_NAME:-$CI_PROJECT_NAME}"
+
+      # Criar projeto no SonarQube automaticamente (ignora se já existe)
+      curl -s -u "admin:${SONAR_ADMIN_PASSWORD:-admin}" -X POST \
+        "$SONAR_HOST_URL/api/projects/create" \
+        --data-urlencode "project=$PROJECT_KEY" \
+        --data-urlencode "name=$PROJECT_NAME" > /dev/null 2>&1 || true
+
+      SONAR_ARGS="-Dsonar.projectKey=$PROJECT_KEY"
+      SONAR_ARGS="$SONAR_ARGS -Dsonar.projectName=$PROJECT_NAME"
+      SONAR_ARGS="$SONAR_ARGS -Dsonar.host.url=$SONAR_HOST_URL"
+      SONAR_ARGS="$SONAR_ARGS -Dsonar.token=$SONAR_TOKEN"
+      SONAR_ARGS="$SONAR_ARGS -Dsonar.qualitygate.wait=true"
+      SONAR_ARGS="$SONAR_ARGS -Dsonar.sourceEncoding=UTF-8"
+
+      # Detectar tipo de projeto e configurar sources/binaries
+      if [ -d "src/main" ]; then
+        SONAR_ARGS="$SONAR_ARGS -Dsonar.sources=src/main"
+        [ -d "src/test" ] && SONAR_ARGS="$SONAR_ARGS -Dsonar.tests=src/test"
+      else
+        SONAR_ARGS="$SONAR_ARGS -Dsonar.sources=."
+      fi
+
+      # Java: Maven (target/classes) ou Gradle (build/classes)
+      if [ -d "build-output/target/classes" ]; then
+        SONAR_ARGS="$SONAR_ARGS -Dsonar.java.binaries=build-output/target/classes"
+      elif [ -d "build-output/build/classes" ]; then
+        SONAR_ARGS="$SONAR_ARGS -Dsonar.java.binaries=build-output/build/classes"
+      fi
+
+      sonar-scanner $SONAR_ARGS
+  allow_failure: true

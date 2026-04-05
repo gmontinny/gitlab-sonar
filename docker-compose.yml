@@ -1,0 +1,133 @@
+services:
+  # ── GitLab CE ──────────────────────────────────────────────
+  gitlab:
+    image: gitlab/gitlab-ce:latest
+    container_name: gitlab
+    hostname: ${GITLAB_HOSTNAME}
+    restart: unless-stopped
+    environment:
+      GITLAB_OMNIBUS_CONFIG: |
+        external_url 'http://${GITLAB_HOSTNAME}:${GITLAB_HTTP_PORT}'
+        gitlab_rails['gitlab_shell_ssh_port'] = ${GITLAB_SSH_PORT}
+        puma['port'] = 0
+        puma['worker_processes'] = 2
+        sidekiq['max_concurrency'] = 10
+        prometheus_monitoring['enable'] = false
+    ports:
+      - "${GITLAB_HTTP_PORT}:${GITLAB_HTTP_PORT}"
+      - "${GITLAB_SSH_PORT}:22"
+    volumes:
+      - gitlab-config:/etc/gitlab
+      - gitlab-logs:/var/log/gitlab
+      - gitlab-data:/var/opt/gitlab
+    shm_size: "256m"
+    networks:
+      - cicd-net
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:${GITLAB_HTTP_PORT}/-/readiness"]
+      interval: 30s
+      timeout: 10s
+      retries: 20
+      start_period: 600s
+
+  # ── GitLab Runner (Docker-in-Docker) ──────────────────────
+  gitlab-runner:
+    build:
+      context: .
+      dockerfile: Dockerfile.runner
+    container_name: gitlab-runner
+    restart: unless-stopped
+    volumes:
+      - runner-config:/etc/gitlab-runner
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - gitlab
+    networks:
+      - cicd-net
+
+  # ── SonarQube ─────────────────────────────────────────────
+  sonarqube:
+    image: sonarqube:lts-community
+    container_name: sonarqube
+    restart: unless-stopped
+    environment:
+      SONAR_JDBC_URL: ${SONAR_JDBC_URL}
+      SONAR_JDBC_USERNAME: ${SONAR_JDBC_USERNAME}
+      SONAR_JDBC_PASSWORD: ${SONAR_JDBC_PASSWORD}
+    ports:
+      - "9000:9000"
+    volumes:
+      - sonar-data:/opt/sonarqube/data
+      - sonar-logs:/opt/sonarqube/logs
+      - sonar-extensions:/opt/sonarqube/extensions
+    depends_on:
+      sonar-db:
+        condition: service_healthy
+    networks:
+      - cicd-net
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:9000/api/system/status | grep -q UP"]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 120s
+
+  # ── Setup automático (integração GitLab ↔ SonarQube) ─────
+  setup:
+    build:
+      context: .
+      dockerfile: Dockerfile.setup
+    container_name: setup
+    environment:
+      GITLAB_HTTP_PORT: ${GITLAB_HTTP_PORT}
+      SONAR_ADMIN_PASSWORD: ${SONAR_ADMIN_PASSWORD}
+      SONAR_NEW_ADMIN_PASSWORD: ${SONAR_NEW_ADMIN_PASSWORD}
+      GITLAB_PAT_NAME: ${GITLAB_PAT_NAME}
+      SONAR_PROJECT_KEY: ${SONAR_PROJECT_KEY}
+      SONAR_PROJECT_NAME: ${SONAR_PROJECT_NAME}
+    volumes:
+      - gitlab-config:/gitlab-config:ro
+      - setup-output:/setup-output
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      gitlab:
+        condition: service_healthy
+      sonarqube:
+        condition: service_healthy
+    networks:
+      - cicd-net
+    restart: "no"
+
+  # ── PostgreSQL (para SonarQube) ───────────────────────────
+  sonar-db:
+    image: postgres:15-alpine
+    container_name: sonar-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - sonar-db-data:/var/lib/postgresql/data
+    networks:
+      - cicd-net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  gitlab-config:
+  gitlab-logs:
+  gitlab-data:
+  sonar-data:
+  sonar-logs:
+  sonar-extensions:
+  sonar-db-data:
+  runner-config:
+  setup-output:
+
+networks:
+  cicd-net:
+    driver: bridge

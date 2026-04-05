@@ -1,0 +1,8 @@
+FROM gitlab/gitlab-runner:latest
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+      docker.io \
+      curl \
+      git && \
+    rm -rf /var/lib/apt/lists/*

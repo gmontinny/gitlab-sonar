@@ -1,0 +1,25 @@
+concurrent = 4
+check_interval = 0
+shutdown_timeout = 0
+
+[session_server]
+  session_timeout = 1800
+
+# Este bloco será preenchido automaticamente pelo 'gitlab-runner register'.
+# Abaixo está um template de referência para registro manual:
+#
+# [[runners]]
+#   name = "docker-runner"
+#   url = "http://gitlab:8080"
+#   token = "<REGISTRATION_TOKEN>"
+#   executor = "docker"
+#   [runners.docker]
+#     tls_verify = false
+#     image = "docker:24-dind"
+#     privileged = true
+#     disable_entrypoint_overwrite = false
+#     oom_kill_disable = false
+#     disable_cache = false
+#     volumes = ["/var/run/docker.sock:/var/run/docker.sock", "/cache"]
+#     shm_size = 0
+#     network_mode = "gitlab-sonar_cicd-net"

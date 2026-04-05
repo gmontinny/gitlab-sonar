@@ -126,6 +126,16 @@ curl -s -H "PRIVATE-TOKEN: ${GITLAB_PAT}" -X POST \
   "${GITLAB_URL}/api/v4/admin/ci/variables" \
   -H "Content-Type: application/json" \
   --data "{\"key\":\"SONAR_ADMIN_PASSWORD\",\"value\":\"${SONAR_PASS}\",\"masked\":true,\"protected\":false}" > /dev/null 2>&1
+
+curl -s -H "PRIVATE-TOKEN: ${GITLAB_PAT}" -X POST \
+  "${GITLAB_URL}/api/v4/admin/ci/variables" \
+  -H "Content-Type: application/json" \
+  --data "{\"key\":\"GITLAB_HOSTNAME\",\"value\":\"${GITLAB_HOSTNAME:-gitlab.local}\",\"masked\":false,\"protected\":false}" > /dev/null 2>&1
+
+curl -s -H "PRIVATE-TOKEN: ${GITLAB_PAT}" -X POST \
+  "${GITLAB_URL}/api/v4/admin/ci/variables" \
+  -H "Content-Type: application/json" \
+  --data "{\"key\":\"REGISTRY_PORT\",\"value\":\"${REGISTRY_PORT:-5050}\",\"masked\":false,\"protected\":false}" > /dev/null 2>&1
 log "✔ Variáveis CI/CD registradas"
 
 # ── 10. Salvar resultado ─────────────────────────────────────

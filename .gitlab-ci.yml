@@ -2,11 +2,13 @@ variables:
   DOCKER_HOST: unix:///var/run/docker.sock
   DOCKER_TLS_CERTDIR: ""
   SONAR_HOST_URL: "http://sonarqube:9000"
+  REGISTRY_URL: "${GITLAB_HOSTNAME}:${REGISTRY_PORT}"
 
 stages:
   - build
   - test
   - quality
+  - publish
 
 # ── Build (usa o Dockerfile da aplicação) ────────────────────
 build:
@@ -74,3 +76,18 @@ sonarqube:
 
       sonar-scanner $SONAR_ARGS
   allow_failure: true
+
+# ── Publish (push para GitLab Registry) ──────────────────────
+publish:
+  stage: publish
+  image: docker:24-dind
+  script:
+    - REGISTRY="${CI_REGISTRY:-$REGISTRY_URL}"
+    - IMAGE="$REGISTRY/$CI_PROJECT_PATH"
+    - docker login -u "$CI_REGISTRY_USER" -p "$CI_REGISTRY_PASSWORD" "$REGISTRY" 2>/dev/null || docker login -u root -p "$CI_JOB_TOKEN" "$REGISTRY"
+    - docker build -t "$IMAGE:$CI_COMMIT_SHORT_SHA" -t "$IMAGE:latest" .
+    - docker push "$IMAGE:$CI_COMMIT_SHORT_SHA"
+    - docker push "$IMAGE:latest"
+    - echo "Imagem publicada em $IMAGE:$CI_COMMIT_SHORT_SHA"
+  only:
+    - main

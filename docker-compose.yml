@@ -1,5 +1,5 @@
 services:
-  # ── GitLab CE ──────────────────────────────────────────────
+  # ── GitLab CE + Container Registry ─────────────────────────
   gitlab:
     image: gitlab/gitlab-ce:latest
     container_name: gitlab
@@ -13,9 +13,15 @@ services:
         puma['worker_processes'] = 2
         sidekiq['max_concurrency'] = 10
         prometheus_monitoring['enable'] = false
+        # Container Registry
+        registry_external_url 'http://${GITLAB_HOSTNAME}:${REGISTRY_PORT}'
+        registry['enable'] = true
+        registry_nginx['listen_port'] = ${REGISTRY_PORT}
+        registry_nginx['listen_https'] = false
     ports:
       - "${GITLAB_HTTP_PORT}:${GITLAB_HTTP_PORT}"
       - "${GITLAB_SSH_PORT}:22"
+      - "${REGISTRY_PORT}:${REGISTRY_PORT}"
     volumes:
       - gitlab-config:/etc/gitlab
       - gitlab-logs:/var/log/gitlab
@@ -79,7 +85,9 @@ services:
       dockerfile: Dockerfile.setup
     container_name: setup
     environment:
+      GITLAB_HOSTNAME: ${GITLAB_HOSTNAME}
       GITLAB_HTTP_PORT: ${GITLAB_HTTP_PORT}
+      REGISTRY_PORT: ${REGISTRY_PORT}
       SONAR_ADMIN_PASSWORD: ${SONAR_ADMIN_PASSWORD}
       SONAR_NEW_ADMIN_PASSWORD: ${SONAR_NEW_ADMIN_PASSWORD}
       GITLAB_PAT_NAME: ${GITLAB_PAT_NAME}
@@ -117,6 +125,19 @@ services:
       timeout: 5s
       retries: 5
 
+  # ── Portainer ─────────────────────────────────────────────
+  portainer:
+    image: portainer/portainer-ce:latest
+    container_name: portainer
+    restart: unless-stopped
+    ports:
+      - "${PORTAINER_PORT}:9443"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - portainer-data:/data
+    networks:
+      - cicd-net
+
 volumes:
   gitlab-config:
   gitlab-logs:
@@ -127,6 +148,7 @@ volumes:
   sonar-db-data:
   runner-config:
   setup-output:
+  portainer-data:
 
 networks:
   cicd-net:
